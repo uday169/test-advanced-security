@@ -5,14 +5,11 @@ const TOKEN_KEY = 'taskflow_token';
 
 function decodeToken(token) {
   try {
-    const payloadSegment = token.split('.')[1];
-    if (!payloadSegment) {
-      return null;
-    }
-
-    const base64 = payloadSegment.replace(/-/g, '+').replace(/_/g, '/');
-    const normalized = base64.padEnd(Math.ceil(base64.length / 4) * 4, '=');
-    return JSON.parse(atob(normalized));
+    const rawPayload = token.split('.')[1];
+    const normalized = rawPayload.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+    const payload = JSON.parse(atob(padded));
+    return payload;
   } catch (error) {
     return null;
   }
@@ -26,7 +23,7 @@ export function AuthProvider({ children }) {
   });
 
   const login = (nextToken) => {
-    localStorage.setItem(TOKEN_KEY, nextToken);
+    localStorage.setItem('taskflow_token', nextToken);
     setToken(nextToken);
     setUser(decodeToken(nextToken));
   };

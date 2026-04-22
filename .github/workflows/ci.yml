@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-audit:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_DB: taskflowdb
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Setup Node 18
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+          cache: npm
+
+      - name: Install workspaces
+        run: npm install
+
+      - name: npm audit — API (non-blocking)
+        run: npm audit --audit-level=moderate
+        working-directory: packages/api
+        continue-on-error: true
+
+      - name: npm audit — Client (non-blocking)
+        run: npm audit --audit-level=moderate
+        working-directory: packages/client
+        continue-on-error: true
+
+      - name: Start API
+        env:
+          DB_HOST: localhost
+          DB_PORT: 5432
+          DB_NAME: taskflowdb
+          DB_USER: postgres
+          DB_PASS: postgres
+          JWT_SECRET: ci-test-secret
+          NODE_ENV: development
+          PORT: 3001
+        run: |
+          cd packages/api && node src/index.js &
+          sleep 4
+
+      - name: Smoke — public endpoints
+        run: |
+          curl -sf http://localhost:3001/api/auth/login \
+            -H "Content-Type: application/json" \
+            -d '{"email":"x","password":"x"}' || true
+
+      - name: Smoke — DAST surface reachable
+        run: |
+          curl -sf "http://localhost:3001/api/vuln/greet?name=ci-test"
+          curl -sf "http://localhost:3001/api/vuln/eval?expr=1%2B1"
+          curl -sf "http://localhost:3001/api/vuln/cmd?host=127.0.0.1"
