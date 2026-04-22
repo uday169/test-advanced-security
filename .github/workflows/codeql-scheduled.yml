@@ -65,7 +65,7 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const title = `🚨 CodeQL scheduled scan found findings — ${new Date().toISOString().split('T')[0]}`;
+            const title = `🚨 CodeQL scheduled scan findings — run ${context.runId}`;
             const body = [
               '## Scheduled CodeQL Scan — Findings Detected',
               '',
