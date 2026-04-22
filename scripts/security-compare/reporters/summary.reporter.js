@@ -34,6 +34,24 @@ function buildOverlapSummary(overlap) {
   return `${lines.join('\n')}\n`;
 }
 
+function buildDetailedMarkdownReport(scores, counts, overlap) {
+  const lines = [
+    '# 🔒 Security Comparison Detailed Report',
+    '',
+    buildSummary(scores, counts).trimEnd(),
+    '',
+    buildOverlapSummary(overlap).trimEnd(),
+    '',
+    '## 📌 Notes',
+    '',
+    '- Snyk = Snyk Code + Snyk OSS',
+    '- GHAS = CodeQL + Dependabot',
+    '- Rates are computed from matched finding groups.',
+  ];
+
+  return `${lines.join('\n')}\n`;
+}
+
 function writeSummary(summary, outputPath) {
   if (!outputPath) return '';
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
@@ -48,4 +66,10 @@ function appendToGithubStepSummary(summary) {
   return filePath;
 }
 
-module.exports = { buildSummary, buildOverlapSummary, writeSummary, appendToGithubStepSummary };
+module.exports = {
+  buildSummary,
+  buildOverlapSummary,
+  buildDetailedMarkdownReport,
+  writeSummary,
+  appendToGithubStepSummary,
+};

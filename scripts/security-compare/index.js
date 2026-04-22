@@ -7,7 +7,13 @@ const { matchSAST, matchSCA } = require('./engine/matcher');
 const { score } = require('./engine/scorer');
 const { generateHTML } = require('./reporters/html.reporter');
 const { generateJSON } = require('./reporters/json.reporter');
-const { buildSummary, buildOverlapSummary, writeSummary, appendToGithubStepSummary } = require('./reporters/summary.reporter');
+const {
+  buildSummary,
+  buildOverlapSummary,
+  buildDetailedMarkdownReport,
+  writeSummary,
+  appendToGithubStepSummary,
+} = require('./reporters/summary.reporter');
 
 function parseArgs(argv) {
   const args = {};
@@ -90,6 +96,7 @@ async function main() {
   const htmlPath = path.join(outDir, 'security-compare.html');
   const summaryPath = path.join(outDir, 'security-compare-summary.md');
   const overlapSummaryPath = path.join(outDir, 'security-compare-overlap.md');
+  const detailedSummaryPath = path.join(outDir, 'security-compare-detailed.md');
 
   generateJSON(report, jsonPath);
   generateHTML(sastGroups, scaGroups, scores, htmlPath);
@@ -104,11 +111,13 @@ async function main() {
 
   const summary = buildSummary(scores, report.counts);
   const overlapSummary = buildOverlapSummary(overlap);
+  const detailedSummary = buildDetailedMarkdownReport(scores, report.counts, overlap);
   writeSummary(summary, summaryPath);
   writeSummary(overlapSummary, overlapSummaryPath);
-  appendToGithubStepSummary(summary);
+  writeSummary(detailedSummary, detailedSummaryPath);
+  appendToGithubStepSummary(detailedSummary);
 
-  process.stdout.write(`Generated report:\n- ${jsonPath}\n- ${htmlPath}\n- ${summaryPath}\n- ${overlapSummaryPath}\n`);
+  process.stdout.write(`Generated report:\n- ${jsonPath}\n- ${htmlPath}\n- ${summaryPath}\n- ${overlapSummaryPath}\n- ${detailedSummaryPath}\n`);
 }
 
 main().catch((error) => {
