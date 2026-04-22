@@ -22,6 +22,18 @@ function parseArgs(argv) {
   return args;
 }
 
+function updateOverlapCounts(overlap, groups) {
+  for (const group of groups) {
+    if (group.tools.length > 1) {
+      overlap.both += 1;
+    } else if (group.overlapType === 'snyk_only') {
+      overlap.snykOnly += 1;
+    } else if (group.overlapType === 'codeql_only' || group.overlapType === 'dependabot_only') {
+      overlap.ghasOnly += 1;
+    }
+  }
+}
+
 async function main() {
   const args = parseArgs(process.argv);
   const repository = args.repository || process.env.GITHUB_REPOSITORY || '';
@@ -77,16 +89,8 @@ async function main() {
   generateHTML(sastGroups, scaGroups, scores, htmlPath);
 
   const overlap = { both: 0, snykOnly: 0, ghasOnly: 0 };
-  for (const group of sastGroups) {
-    if (group.tools.length > 1) overlap.both += 1;
-    if (group.overlapType === 'snyk_only') overlap.snykOnly += 1;
-    if (group.overlapType === 'codeql_only' || group.overlapType === 'dependabot_only') overlap.ghasOnly += 1;
-  }
-  for (const group of scaGroups) {
-    if (group.tools.length > 1) overlap.both += 1;
-    if (group.overlapType === 'snyk_only') overlap.snykOnly += 1;
-    if (group.overlapType === 'codeql_only' || group.overlapType === 'dependabot_only') overlap.ghasOnly += 1;
-  }
+  updateOverlapCounts(overlap, sastGroups);
+  updateOverlapCounts(overlap, scaGroups);
 
   const summary = buildSummary(scores, report.counts);
   const overlapSummary = buildOverlapSummary(overlap);
