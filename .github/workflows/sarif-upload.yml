@@ -55,7 +55,7 @@ jobs:
           category: "${{ inputs.tool }}-${{ inputs.category }}"
 
       - name: Archive SARIF file
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: "sarif-${{ inputs.tool }}-${{ github.run_id }}"
           path: ${{ inputs.sarif_path }}
