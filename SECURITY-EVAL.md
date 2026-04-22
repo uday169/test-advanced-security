@@ -223,7 +223,7 @@ curl "http://localhost:3001/api/vuln/file?name=../../package.json"
 curl "http://localhost:3001/api/vuln/users?role=%27%20OR%20%271%27%3D%271"
 
 # DAST-06 reflected XSS
-curl "http://localhost:3001/api/vuln/greet?name="
+curl "http://localhost:3001/api/vuln/greet?name=%3Cscript%3Ealert(document.cookie)%3C%2Fscript%3E"
 
 # DAST-09 open redirect
 curl -I "http://localhost:3001/api/vuln/redirect?to=https://evil.example.com"

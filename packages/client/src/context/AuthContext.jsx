@@ -5,7 +5,10 @@ const TOKEN_KEY = 'taskflow_token';
 
 function decodeToken(token) {
   try {
-    const payload = JSON.parse(atob(token.split('.')[1]));
+    const rawPayload = token.split('.')[1];
+    const normalized = rawPayload.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, '=');
+    const payload = JSON.parse(atob(padded));
     return payload;
   } catch (error) {
     return null;
