@@ -2,7 +2,8 @@ function renderReportTemplate(payload) {
   const json = JSON.stringify(payload, null, 2)
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
 
   return `<!doctype html>
 <html lang="en">

@@ -1,6 +1,7 @@
 const fs = require('fs');
 const csv = require('csv-parse/sync');
 const { normaliseSeverity, SEVERITY_SCORE } = require('../engine/normalise');
+const MAX_SLUG_LENGTH = 40;
 
 function parseSnykCSV(filePath) {
   const raw = fs.readFileSync(filePath, 'utf8');
@@ -84,7 +85,7 @@ function slugify(str) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
-    .substring(0, 40);
+    .substring(0, MAX_SLUG_LENGTH);
 }
 
 module.exports = { parseSnykCSV };

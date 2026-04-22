@@ -2,14 +2,15 @@ const fs = require('fs');
 const path = require('path');
 
 function buildSummary(scores, counts) {
+  const asPercent = (value) => `${(value * 100).toFixed(1)}%`;
   const lines = [
     '## 🔒 Security Findings Comparator',
     '',
     '| Metric | Snyk | GHAS |',
     '|---|---:|---:|',
-    `| SAST detection rate | ${scores.sast.snyk.detectionRate} | ${scores.sast.codeql.detectionRate} |`,
-    `| SCA detection rate | ${scores.sca.snyk.detectionRate} | ${scores.sca.dependabot.detectionRate} |`,
-    `| Overall detection rate | ${scores.overall.snyk.detectionRate} | ${scores.overall.ghas.detectionRate} |`,
+    `| SAST detection rate | ${asPercent(scores.sast.snyk.detectionRate)} | ${asPercent(scores.sast.codeql.detectionRate)} |`,
+    `| SCA detection rate | ${asPercent(scores.sca.snyk.detectionRate)} | ${asPercent(scores.sca.dependabot.detectionRate)} |`,
+    `| Overall detection rate | ${asPercent(scores.overall.snyk.detectionRate)} | ${asPercent(scores.overall.ghas.detectionRate)} |`,
     '',
     `- Snyk findings parsed: ${counts.snyk}`,
     `- CodeQL findings fetched: ${counts.codeql}`,
