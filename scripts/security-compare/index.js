@@ -76,14 +76,20 @@ async function main() {
   generateJSON(report, jsonPath);
   generateHTML(sastGroups, scaGroups, scores, htmlPath);
 
-  const allGroups = [...sastGroups, ...scaGroups];
+  const overlap = { both: 0, snykOnly: 0, ghasOnly: 0 };
+  for (const group of sastGroups) {
+    if (group.tools.length > 1) overlap.both += 1;
+    if (group.overlapType === 'snyk_only') overlap.snykOnly += 1;
+    if (group.overlapType === 'codeql_only' || group.overlapType === 'dependabot_only') overlap.ghasOnly += 1;
+  }
+  for (const group of scaGroups) {
+    if (group.tools.length > 1) overlap.both += 1;
+    if (group.overlapType === 'snyk_only') overlap.snykOnly += 1;
+    if (group.overlapType === 'codeql_only' || group.overlapType === 'dependabot_only') overlap.ghasOnly += 1;
+  }
+
   const summary = buildSummary(scores, report.counts);
-  const overlapSummary = buildOverlapSummary({
-    both: allGroups.filter((group) => group.tools.length > 1).length,
-    snykOnly: allGroups.filter((group) => group.overlapType === 'snyk_only').length,
-    ghasOnly: allGroups
-      .filter((group) => group.overlapType === 'codeql_only' || group.overlapType === 'dependabot_only').length,
-  });
+  const overlapSummary = buildOverlapSummary(overlap);
   writeSummary(summary, summaryPath);
   writeSummary(overlapSummary, overlapSummaryPath);
   appendToGithubStepSummary(summary);
