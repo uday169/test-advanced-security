@@ -1,0 +1,88 @@
+#!/usr/bin/env node
+const path = require('path');
+const { parseSnykCSV } = require('./parsers/snyk.parser');
+const { fetchCodeQLFindings } = require('./parsers/codeql.parser');
+const { fetchDependabotFindings } = require('./parsers/dependabot.parser');
+const { matchSAST, matchSCA } = require('./engine/matcher');
+const { score } = require('./engine/scorer');
+const { generateHTML } = require('./reporters/html.reporter');
+const { generateJSON } = require('./reporters/json.reporter');
+const { buildSummary, writeSummary, appendToGithubStepSummary } = require('./reporters/summary.reporter');
+
+function parseArgs(argv) {
+  const args = {};
+  for (let i = 2; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (!arg.startsWith('--')) continue;
+    const key = arg.slice(2);
+    const value = argv[i + 1] && !argv[i + 1].startsWith('--') ? argv[i + 1] : 'true';
+    args[key] = value;
+    if (value !== 'true') i += 1;
+  }
+  return args;
+}
+
+async function main() {
+  const args = parseArgs(process.argv);
+  const repository = args.repository || process.env.GITHUB_REPOSITORY || '';
+  const [repoOwner, repoName] = repository.includes('/') ? repository.split('/') : [args.owner, args.repo];
+
+  const owner = args.owner || repoOwner;
+  const repo = args.repo || repoName;
+  const token = args.token || process.env.GITHUB_TOKEN;
+  const snykCsv = args['snyk-csv'];
+  const outDir = path.resolve(args['out-dir'] || path.join(process.cwd(), 'scripts/security-compare/output'));
+
+  if (!snykCsv) {
+    throw new Error('Missing required argument: --snyk-csv <absolute-or-relative-path>');
+  }
+  if (!owner || !repo) {
+    throw new Error('Missing GitHub repository context. Provide --owner and --repo (or GITHUB_REPOSITORY).');
+  }
+  if (!token) {
+    throw new Error('Missing GitHub token. Provide --token or GITHUB_TOKEN.');
+  }
+
+  const snykFindings = parseSnykCSV(path.resolve(snykCsv));
+  const [codeqlFindings, dependabotFindings] = await Promise.all([
+    fetchCodeQLFindings(owner, repo, token),
+    fetchDependabotFindings(owner, repo, token),
+  ]);
+
+  const sastGroups = matchSAST(snykFindings, codeqlFindings);
+  const scaGroups = matchSCA(snykFindings, dependabotFindings);
+  const scores = score(sastGroups, scaGroups);
+
+  const report = {
+    generatedAt: new Date().toISOString(),
+    repository: `${owner}/${repo}`,
+    counts: {
+      snyk: snykFindings.length,
+      codeql: codeqlFindings.length,
+      dependabot: dependabotFindings.length,
+      sastGroups: sastGroups.length,
+      scaGroups: scaGroups.length,
+    },
+    scores,
+    sastGroups,
+    scaGroups,
+  };
+
+  const jsonPath = path.join(outDir, 'security-compare.json');
+  const htmlPath = path.join(outDir, 'security-compare.html');
+  const summaryPath = path.join(outDir, 'security-compare-summary.md');
+
+  generateJSON(report, jsonPath);
+  generateHTML(sastGroups, scaGroups, scores, htmlPath);
+
+  const summary = buildSummary(scores, report.counts);
+  writeSummary(summary, summaryPath);
+  appendToGithubStepSummary(summary);
+
+  process.stdout.write(`Generated report:\n- ${jsonPath}\n- ${htmlPath}\n- ${summaryPath}\n`);
+}
+
+main().catch((error) => {
+  process.stderr.write(`${error.message}\n`);
+  process.exitCode = 1;
+});
