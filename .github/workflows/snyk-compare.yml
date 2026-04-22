@@ -150,6 +150,7 @@ jobs:
           echo "⚠️ Comparator command exited non-zero; downstream steps will use fallback values if outputs are missing." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Normalize comparator outputs
+        id: normalize
         shell: bash
         run: |
           node - <<'EOF'
@@ -213,6 +214,12 @@ jobs:
             fs.writeFileSync(finalDetailedMdPath, `${markdownSections.join('\n\n')}\n`);
           }
           EOF
+
+          if [ -f "${{ env.OUTPUT_DIR }}/security-comparison.json" ]; then
+            echo "files_generated=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "files_generated=false" >> "$GITHUB_OUTPUT"
+          fi
         env:
           OUTPUT_DIR: ${{ env.OUTPUT_DIR }}
           CSV_PATH: ${{ needs.resolve-csv.outputs.csv_path }}
@@ -281,6 +288,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload HTML report artifact
+        if: steps.normalize.outputs.files_generated == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: "security-comparison-html-${{ github.run_id }}"
@@ -288,6 +296,7 @@ jobs:
           retention-days: 90
 
       - name: Upload JSON report artifact
+        if: steps.normalize.outputs.files_generated == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: "security-comparison-json-${{ github.run_id }}"
@@ -295,6 +304,7 @@ jobs:
           retention-days: 90
 
       - name: Upload detailed markdown report
+        if: steps.normalize.outputs.files_generated == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: "security-comparison-md-${{ github.run_id }}"
@@ -393,7 +403,7 @@ jobs:
     name: "Open verdict issue on main"
     runs-on: ubuntu-latest
     needs: [resolve-csv, compare]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
 
     steps:
       - name: Open GitHub issue with verdict
