@@ -299,6 +299,7 @@ jobs:
         with:
           name: "security-comparison-md-${{ github.run_id }}"
           path: ${{ env.OUTPUT_DIR }}/security-comparison-detailed.md
+          if-no-files-found: warn
           retention-days: 90
 
       - name: Archive Snyk CSV
