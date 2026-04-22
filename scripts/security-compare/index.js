@@ -32,6 +32,8 @@ function countOverlap(groups) {
       overlap.snykOnly += 1;
     } else if (group.overlapType === 'codeql_only' || group.overlapType === 'dependabot_only') {
       overlap.ghasOnly += 1;
+    } else if (group.tools.length === 1) {
+      throw new Error(`Unexpected overlap type for single-tool group: ${group.overlapType || 'unknown'}`);
     }
   }
 
