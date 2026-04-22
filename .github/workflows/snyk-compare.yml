@@ -61,7 +61,10 @@ jobs:
             CSV_PATH="${{ inputs.snyk_csv_path }}"
             LABEL="${{ inputs.report_label }}"
           else
-            CSV_PATH=$(find "${{ env.REPORTS_BUCKET }}" -name '*.csv' -type f | xargs ls -t 2>/dev/null | head -1)
+            CSV_PATH=$(find "${{ env.REPORTS_BUCKET }}" -name '*.csv' -type f -exec stat -c $'%Y\t%n' {} + \
+              | sort -rn \
+              | head -1 \
+              | cut -f2-)
             LABEL=""
           fi
 
@@ -120,7 +123,7 @@ jobs:
 
       - name: Install comparator dependencies
         working-directory: ${{ env.COMPARE_DIR }}
-        run: npm install --prefer-offline
+        run: npm ci --prefer-offline
 
       - name: Prepare output directory
         run: mkdir -p "${{ env.OUTPUT_DIR }}"
@@ -140,6 +143,11 @@ jobs:
             --owner "${{ github.repository_owner }}" \
             --repo "${{ github.event.repository.name }}"
         continue-on-error: true
+
+      - name: Note comparator failure
+        if: steps.run-compare.outcome == 'failure'
+        run: |
+          echo "⚠️ Comparator command exited non-zero; downstream steps will use fallback values if outputs are missing." >> "$GITHUB_STEP_SUMMARY"
 
       - name: Normalize comparator outputs
         shell: bash
@@ -180,8 +188,10 @@ jobs:
           fs.writeFileSync(finalJsonPath, JSON.stringify(normalized, null, 2));
 
           const html = fs.readFileSync(rawHtmlPath, 'utf8');
-          const meta = `\n<!-- Run metadata -->\n<!-- Workflow run: ${process.env.GITHUB_RUN_ID} -->\n<!-- Triggered by: ${process.env.GITHUB_EVENT_NAME} -->\n<!-- CSV: ${process.env.CSV_PATH} -->\n<!-- Label: ${process.env.REPORT_LABEL} -->\n`;
-          fs.writeFileSync(finalHtmlPath, html.replace('</body>', `${meta}</body>`));
+          const label = process.env.REPORT_LABEL || 'n/a';
+          const meta = `\n<!-- Run metadata -->\n<!-- Workflow run: ${process.env.GITHUB_RUN_ID} -->\n<!-- Triggered by: ${process.env.GITHUB_EVENT_NAME} -->\n<!-- CSV: ${process.env.CSV_PATH} -->\n<!-- Label: ${label} -->\n`;
+          const stampedHtml = html.includes('</body>') ? html.replace('</body>', `${meta}</body>`) : `${html}\n${meta}\n`;
+          fs.writeFileSync(finalHtmlPath, stampedHtml);
           EOF
         env:
           OUTPUT_DIR: ${{ env.OUTPUT_DIR }}
@@ -213,7 +223,7 @@ jobs:
           const overall = scores.overall || {};
           const snykRate = Math.round(((overall.snyk || {}).detectionRate || 0) * 100);
           const ghasRate = Math.round(((overall.ghas || {}).detectionRate || 0) * 100);
-          const winner = snykRate >= ghasRate ? 'Snyk' : 'GHAS';
+          const winner = snykRate > ghasRate ? 'Snyk' : (snykRate < ghasRate ? 'GHAS' : 'Tie');
           const summary = report.summary || {};
           const output = process.env.GITHUB_OUTPUT;
 
@@ -236,6 +246,9 @@ jobs:
           SNYK_ONLY="${{ steps.parse-results.outputs.snyk_only }}"
           GHAS_ONLY="${{ steps.parse-results.outputs.ghas_only }}"
           BOTH=$((TOTAL - SNYK_ONLY - GHAS_ONLY))
+          if [ "$BOTH" -lt 0 ]; then
+            BOTH=0
+          fi
 
           {
             echo "## Security Comparison Results"
@@ -286,11 +299,14 @@ jobs:
             const total = '${{ needs.compare.outputs.total_findings }}';
             const snykOnly = '${{ needs.compare.outputs.snyk_only }}';
             const ghasOnly = '${{ needs.compare.outputs.ghas_only }}';
-            const both = total - parseInt(snykOnly, 10) - parseInt(ghasOnly, 10);
+            const both = Math.max(0, Number(total) - Number(snykOnly) - Number(ghasOnly));
             const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const evalDocUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/blob/${context.payload.pull_request.head.sha}/SECURITY-EVAL.md`;
             const winnerBadge = winner === 'Snyk'
               ? '🟣 **Snyk** wins this round'
-              : '🔵 **GHAS** wins this round';
+              : winner === 'GHAS'
+                ? '🔵 **GHAS** wins this round'
+                : '🟰 **Tie** — equal detection rates';
 
             const body = [
               '## 🔒 Security Tool Comparison — Snyk vs GHAS',
@@ -319,7 +335,7 @@ jobs:
               `- 📄 [HTML Report (interactive)](${runUrl}) — download from Artifacts`,
               '- 📋 JSON report available in workflow artifacts',
               '',
-              '> Intentional vulnerabilities mapped in [SECURITY-EVAL.md](./SECURITY-EVAL.md)',
+              `> Intentional vulnerabilities mapped in [SECURITY-EVAL.md](${evalDocUrl})`,
             ].join('\n');
 
             const comments = await github.rest.issues.listComments({
@@ -365,6 +381,7 @@ jobs:
             const ghasOnly = '${{ needs.compare.outputs.ghas_only }}';
             const date = new Date().toISOString().split('T')[0];
             const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const evalDocUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/blob/${context.sha}/SECURITY-EVAL.md`;
 
             for (const label of ['security', 'evaluation', 'snyk-vs-ghas']) {
               try {
@@ -375,6 +392,7 @@ jobs:
                 });
               } catch (error) {
                 if (error.status !== 422) throw error;
+                console.log(`Label "${label}" already exists.`);
               }
             }
 
@@ -409,7 +427,7 @@ jobs:
                 `- [HTML Report](${runUrl}) — interactive comparison table`,
                 `- [JSON Report](${runUrl}) — machine-readable for further analysis`,
                 '',
-                '> See [SECURITY-EVAL.md](./SECURITY-EVAL.md) for ground truth registry',
+                `> See [SECURITY-EVAL.md](${evalDocUrl}) for ground truth registry`,
               ].join('\n'),
               labels: ['security', 'evaluation', 'snyk-vs-ghas'],
             });
