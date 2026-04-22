@@ -1,0 +1,15 @@
+{
+  "name": "security-compare",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Security findings comparator: Snyk CSV vs GHAS CodeQL+Dependabot",
+  "main": "index.js",
+  "scripts": {
+    "compare": "node index.js",
+    "test": "node --test ./test/*.test.js"
+  },
+  "dependencies": {
+    "@octokit/rest": "21.1.1",
+    "csv-parse": "5.5.6"
+  }
+}
