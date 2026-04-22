@@ -189,7 +189,7 @@ Repo Settings → Security → Enable:
   ✓ Secret scanning
   ✓ Dependabot alerts
   ✓ Dependabot security updates
-Push to main → check Security tab for findings
+Push to main → check Security tab for findings.
 ````
 
 ### Snyk (CLI)
