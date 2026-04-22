@@ -16,7 +16,6 @@ If you discover a vulnerability:
 ## GHAS Controls in this Repository
 
 - CodeQL code scanning (`.github/workflows/codeql*.yml`)
-- Dependabot updates and dependency review (`.github/dependabot.yml`, `.github/workflows/dependency-review.yml`)
-- Secret scanning alert gate (`.github/workflows/secret-scanning-alerts.yml`)
-- Security merge gate (`.github/workflows/security-gate.yml`)
+- Dependabot updates and security remediation PRs (`.github/dependabot.yml`, `.github/workflows/dependabot-auto-merge.yml`)
+- Secret scanning summary reporting (`.github/workflows/secret-scanning-alerts.yml`)
 - Third-party SARIF ingestion (`.github/workflows/sarif-upload.yml`)
