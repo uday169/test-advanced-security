@@ -76,11 +76,12 @@ async function main() {
   generateJSON(report, jsonPath);
   generateHTML(sastGroups, scaGroups, scores, htmlPath);
 
+  const allGroups = [...sastGroups, ...scaGroups];
   const summary = buildSummary(scores, report.counts);
   const overlapSummary = buildOverlapSummary({
-    both: [...sastGroups, ...scaGroups].filter((group) => group.tools.length > 1).length,
-    snykOnly: [...sastGroups, ...scaGroups].filter((group) => group.overlapType === 'snyk_only').length,
-    ghasOnly: [...sastGroups, ...scaGroups]
+    both: allGroups.filter((group) => group.tools.length > 1).length,
+    snykOnly: allGroups.filter((group) => group.overlapType === 'snyk_only').length,
+    ghasOnly: allGroups
       .filter((group) => group.overlapType === 'codeql_only' || group.overlapType === 'dependabot_only').length,
   });
   writeSummary(summary, summaryPath);
