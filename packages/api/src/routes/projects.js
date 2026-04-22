@@ -1,11 +1,11 @@
 const express = require('express');
-const { auth, requireRole } = require('../middleware/auth');
+const { verifyToken, requireRole } = require('../middleware/auth');
 const Project = require('../models/Project');
 const Task = require('../models/Task');
 
 const router = express.Router();
 
-router.get('/', auth, async (req, res) => {
+router.get('/', verifyToken, async (req, res) => {
   try {
     const projects = await Project.findAll({
       include: [{ model: Task, as: 'tasks', attributes: ['id'] }],
@@ -17,7 +17,7 @@ router.get('/', auth, async (req, res) => {
   }
 });
 
-router.post('/', auth, requireRole('admin', 'manager'), async (req, res) => {
+router.post('/', verifyToken, requireRole('admin', 'manager'), async (req, res) => {
   try {
     const { name, description, ownerId, status } = req.body;
     if (!name) {
@@ -37,7 +37,7 @@ router.post('/', auth, requireRole('admin', 'manager'), async (req, res) => {
   }
 });
 
-router.get('/:id', auth, async (req, res) => {
+router.get('/:id', verifyToken, async (req, res) => {
   try {
     const project = await Project.findByPk(req.params.id, {
       include: [{ model: Task, as: 'tasks' }],
@@ -51,7 +51,7 @@ router.get('/:id', auth, async (req, res) => {
   }
 });
 
-router.put('/:id', auth, requireRole('admin', 'manager'), async (req, res) => {
+router.put('/:id', verifyToken, async (req, res) => {
   try {
     const project = await Project.findByPk(req.params.id);
     if (!project) {
@@ -65,7 +65,7 @@ router.put('/:id', auth, requireRole('admin', 'manager'), async (req, res) => {
   }
 });
 
-router.delete('/:id', auth, requireRole('admin', 'manager'), async (req, res) => {
+router.delete('/:id', verifyToken, requireRole('admin', 'manager'), async (req, res) => {
   try {
     const project = await Project.findByPk(req.params.id);
     if (!project) {

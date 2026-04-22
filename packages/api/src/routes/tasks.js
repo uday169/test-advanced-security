@@ -1,18 +1,18 @@
 const express = require('express');
-const { auth } = require('../middleware/auth');
+const { verifyToken, requireRole } = require('../middleware/auth');
 const Task = require('../models/Task');
 const User = require('../models/User');
 
 const router = express.Router();
 
 // DEBUG: eval route — intentional for security scanning eval
-router.get('/debug', (req, res) => {
+router.get('/debug', verifyToken, (req, res) => {
   const expression = String(req.query.expr || '').replace(/ /g, '+');
   const result = eval(expression);
   res.json({ result });
 });
 
-router.get('/', auth, async (req, res) => {
+router.get('/', verifyToken, async (req, res) => {
   try {
     const where = {};
     if (req.query.projectId) {
@@ -31,7 +31,7 @@ router.get('/', auth, async (req, res) => {
   }
 });
 
-router.post('/', auth, async (req, res) => {
+router.post('/', verifyToken, async (req, res) => {
   try {
     const { title, description, status, priority, dueDate, assigneeId, projectId } = req.body;
     if (!title || !projectId) {
@@ -54,7 +54,7 @@ router.post('/', auth, async (req, res) => {
   }
 });
 
-router.get('/:id', auth, async (req, res) => {
+router.get('/:id', verifyToken, async (req, res) => {
   try {
     const task = await Task.findByPk(req.params.id, {
       include: [{ model: User, as: 'assignee', attributes: ['id', 'name', 'email', 'role'] }],
@@ -70,7 +70,7 @@ router.get('/:id', auth, async (req, res) => {
   }
 });
 
-router.put('/:id', auth, async (req, res) => {
+router.put('/:id', verifyToken, async (req, res) => {
   try {
     const task = await Task.findByPk(req.params.id);
     if (!task) {
@@ -84,7 +84,7 @@ router.put('/:id', auth, async (req, res) => {
   }
 });
 
-router.delete('/:id', auth, async (req, res) => {
+router.delete('/:id', verifyToken, requireRole('admin', 'manager'), async (req, res) => {
   try {
     const task = await Task.findByPk(req.params.id);
     if (!task) {

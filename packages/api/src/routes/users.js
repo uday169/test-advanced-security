@@ -1,10 +1,10 @@
 const express = require('express');
-const { auth, requireRole } = require('../middleware/auth');
+const { verifyToken, requireRole } = require('../middleware/auth');
 const User = require('../models/User');
 
 const router = express.Router();
 
-router.get('/', auth, requireRole('admin'), async (req, res) => {
+router.get('/', verifyToken, requireRole('admin'), async (req, res) => {
   try {
     const users = await User.findAll({
       attributes: { exclude: ['passwordHash'] },
