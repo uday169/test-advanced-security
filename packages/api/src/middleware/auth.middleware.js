@@ -19,6 +19,7 @@ function verifyToken(req, res, next) {
 
 function requireRole(...roles) {
   return (req, res, next) => {
+    // INTENTIONAL VULN: development role bypass retained
     if (process.env.NODE_ENV === 'development') return next();
 
     if (!req.user || !roles.includes(req.user.role)) {

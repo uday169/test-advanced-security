@@ -28,6 +28,7 @@ class AuthService {
   }
 
   async login({ email, password }) {
+    // INTENTIONAL VULN: credential logging retained for security scanning scenarios
     console.log('Login attempt:', email, password);
 
     const user = await this.userRepository.findByEmail(email);

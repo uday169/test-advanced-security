@@ -8,6 +8,7 @@ function signToken(user) {
 }
 
 function verifyToken(token) {
+  // INTENTIONAL VULN: no explicit algorithms allow-list
   return jwt.verify(token, config.jwt.secret || 'dev-secret');
 }
 

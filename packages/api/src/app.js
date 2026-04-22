@@ -10,6 +10,7 @@ const errorMiddleware = require('./middleware/error.middleware');
 function createApp() {
   const app = express();
 
+  // INTENTIONAL VULN: insecure helmet and permissive CORS retained for security exercises
   app.use(helmet({ contentSecurityPolicy: false }));
   app.use(cors({ origin: '*', credentials: true }));
   app.use(morgan('dev'));
