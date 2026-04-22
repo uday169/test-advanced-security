@@ -22,7 +22,9 @@ function parseArgs(argv) {
   return args;
 }
 
-function updateOverlapCounts(overlap, groups) {
+function countOverlap(groups) {
+  const overlap = { both: 0, snykOnly: 0, ghasOnly: 0 };
+
   for (const group of groups) {
     if (group.tools.length > 1) {
       overlap.both += 1;
@@ -32,6 +34,8 @@ function updateOverlapCounts(overlap, groups) {
       overlap.ghasOnly += 1;
     }
   }
+
+  return overlap;
 }
 
 async function main() {
@@ -88,9 +92,13 @@ async function main() {
   generateJSON(report, jsonPath);
   generateHTML(sastGroups, scaGroups, scores, htmlPath);
 
-  const overlap = { both: 0, snykOnly: 0, ghasOnly: 0 };
-  updateOverlapCounts(overlap, sastGroups);
-  updateOverlapCounts(overlap, scaGroups);
+  const sastOverlap = countOverlap(sastGroups);
+  const scaOverlap = countOverlap(scaGroups);
+  const overlap = {
+    both: sastOverlap.both + scaOverlap.both,
+    snykOnly: sastOverlap.snykOnly + scaOverlap.snykOnly,
+    ghasOnly: sastOverlap.ghasOnly + scaOverlap.ghasOnly,
+  };
 
   const summary = buildSummary(scores, report.counts);
   const overlapSummary = buildOverlapSummary(overlap);
