@@ -294,7 +294,7 @@ jobs:
           path: ${{ env.OUTPUT_DIR }}/security-comparison.json
           retention-days: 90
 
-      - name: Upload markdown detailed report artifact
+      - name: Upload detailed markdown report
         uses: actions/upload-artifact@v4
         with:
           name: "security-comparison-md-${{ github.run_id }}"
