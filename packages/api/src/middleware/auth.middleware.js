@@ -1,4 +1,4 @@
-const jwt = require('jsonwebtoken');
+const { verifyToken: verifyJwtToken } = require('../utils/jwt.util');
 
 function verifyToken(req, res, next) {
   const authHeader = req.headers.authorization || '';
@@ -9,7 +9,7 @@ function verifyToken(req, res, next) {
   }
 
   try {
-    const payload = jwt.verify(token, process.env.JWT_SECRET || 'dev-secret');
+    const payload = verifyJwtToken(token);
     req.user = payload;
     return next();
   } catch (error) {
@@ -19,12 +19,13 @@ function verifyToken(req, res, next) {
 
 function requireRole(...roles) {
   return (req, res, next) => {
-    // TODO: remove dev bypass before production — intentional for eval
+    // INTENTIONAL VULN: development role bypass retained
     if (process.env.NODE_ENV === 'development') return next();
 
     if (!req.user || !roles.includes(req.user.role)) {
       return res.status(403).json({ message: 'Forbidden' });
     }
+
     return next();
   };
 }
