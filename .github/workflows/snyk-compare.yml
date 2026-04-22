@@ -159,8 +159,12 @@ jobs:
           const outDir = path.resolve(process.env.OUTPUT_DIR);
           const rawJsonPath = path.join(outDir, 'security-compare.json');
           const rawHtmlPath = path.join(outDir, 'security-compare.html');
+          const rawSummaryPath = path.join(outDir, 'security-compare-summary.md');
+          const rawOverlapPath = path.join(outDir, 'security-compare-overlap.md');
+          const rawDetailedPath = path.join(outDir, 'security-compare-detailed.md');
           const finalJsonPath = path.join(outDir, 'security-comparison.json');
           const finalHtmlPath = path.join(outDir, 'security-comparison.html');
+          const finalDetailedMdPath = path.join(outDir, 'security-comparison-detailed.md');
 
           if (!fs.existsSync(rawJsonPath) || !fs.existsSync(rawHtmlPath)) {
             process.exit(0);
@@ -192,6 +196,22 @@ jobs:
           const meta = `\n<!-- Run metadata -->\n<!-- Workflow run: ${process.env.GITHUB_RUN_ID} -->\n<!-- Triggered by: ${process.env.GITHUB_EVENT_NAME} -->\n<!-- CSV: ${process.env.CSV_PATH} -->\n<!-- Label: ${label} -->\n`;
           const stampedHtml = html.includes('</body>') ? html.replace('</body>', `${meta}</body>`) : `${html}\n${meta}\n`;
           fs.writeFileSync(finalHtmlPath, stampedHtml);
+
+          const markdownSections = [];
+          if (fs.existsSync(rawDetailedPath)) {
+            markdownSections.push(fs.readFileSync(rawDetailedPath, 'utf8').trim());
+          } else {
+            if (fs.existsSync(rawSummaryPath)) markdownSections.push(fs.readFileSync(rawSummaryPath, 'utf8').trim());
+            if (fs.existsSync(rawOverlapPath)) markdownSections.push(fs.readFileSync(rawOverlapPath, 'utf8').trim());
+          }
+          if (markdownSections.length > 0) {
+            markdownSections.push('## 🧾 Run Metadata');
+            markdownSections.push(`- Workflow run: ${process.env.GITHUB_RUN_ID}`);
+            markdownSections.push(`- Triggered by: ${process.env.GITHUB_EVENT_NAME}`);
+            markdownSections.push(`- CSV: \`${process.env.CSV_PATH}\``);
+            markdownSections.push(`- Label: ${label}`);
+            fs.writeFileSync(finalDetailedMdPath, `${markdownSections.join('\n\n')}\n`);
+          }
           EOF
         env:
           OUTPUT_DIR: ${{ env.OUTPUT_DIR }}
@@ -272,6 +292,13 @@ jobs:
         with:
           name: "security-comparison-json-${{ github.run_id }}"
           path: ${{ env.OUTPUT_DIR }}/security-comparison.json
+          retention-days: 90
+
+      - name: Upload markdown detailed report artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: "security-comparison-md-${{ github.run_id }}"
+          path: ${{ env.OUTPUT_DIR }}/security-comparison-detailed.md
           retention-days: 90
 
       - name: Archive Snyk CSV
