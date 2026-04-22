@@ -20,6 +20,20 @@ function buildSummary(scores, counts) {
   return `${lines.join('\n')}\n`;
 }
 
+function buildOverlapSummary(overlap) {
+  const lines = [
+    '## 🔍 Findings Overlap Breakdown',
+    '',
+    '| Category | Count |',
+    '|---|---:|',
+    `| Found by both tools | ${overlap.both} |`,
+    `| Snyk only | ${overlap.snykOnly} |`,
+    `| GHAS only | ${overlap.ghasOnly} |`,
+  ];
+
+  return `${lines.join('\n')}\n`;
+}
+
 function writeSummary(summary, outputPath) {
   if (!outputPath) return '';
   fs.mkdirSync(path.dirname(outputPath), { recursive: true });
@@ -34,4 +48,4 @@ function appendToGithubStepSummary(summary) {
   return filePath;
 }
 
-module.exports = { buildSummary, writeSummary, appendToGithubStepSummary };
+module.exports = { buildSummary, buildOverlapSummary, writeSummary, appendToGithubStepSummary };

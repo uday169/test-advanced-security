@@ -7,7 +7,7 @@ const { matchSAST, matchSCA } = require('./engine/matcher');
 const { score } = require('./engine/scorer');
 const { generateHTML } = require('./reporters/html.reporter');
 const { generateJSON } = require('./reporters/json.reporter');
-const { buildSummary, writeSummary, appendToGithubStepSummary } = require('./reporters/summary.reporter');
+const { buildSummary, buildOverlapSummary, writeSummary, appendToGithubStepSummary } = require('./reporters/summary.reporter');
 
 function parseArgs(argv) {
   const args = {};
@@ -20,6 +20,24 @@ function parseArgs(argv) {
     if (value !== 'true') i += 1;
   }
   return args;
+}
+
+function countOverlap(groups) {
+  const overlap = { both: 0, snykOnly: 0, ghasOnly: 0 };
+
+  for (const group of groups) {
+    if (group.tools.length > 1) {
+      overlap.both += 1;
+    } else if (group.overlapType === 'snyk_only') {
+      overlap.snykOnly += 1;
+    } else if (group.overlapType === 'codeql_only' || group.overlapType === 'dependabot_only') {
+      overlap.ghasOnly += 1;
+    } else if (group.tools.length === 1) {
+      throw new Error(`Unexpected overlap type for single-tool group: ${group.overlapType || 'unknown'}`);
+    }
+  }
+
+  return overlap;
 }
 
 async function main() {
@@ -71,15 +89,26 @@ async function main() {
   const jsonPath = path.join(outDir, 'security-compare.json');
   const htmlPath = path.join(outDir, 'security-compare.html');
   const summaryPath = path.join(outDir, 'security-compare-summary.md');
+  const overlapSummaryPath = path.join(outDir, 'security-compare-overlap.md');
 
   generateJSON(report, jsonPath);
   generateHTML(sastGroups, scaGroups, scores, htmlPath);
 
+  const sastOverlap = countOverlap(sastGroups);
+  const scaOverlap = countOverlap(scaGroups);
+  const overlap = {
+    both: sastOverlap.both + scaOverlap.both,
+    snykOnly: sastOverlap.snykOnly + scaOverlap.snykOnly,
+    ghasOnly: sastOverlap.ghasOnly + scaOverlap.ghasOnly,
+  };
+
   const summary = buildSummary(scores, report.counts);
+  const overlapSummary = buildOverlapSummary(overlap);
   writeSummary(summary, summaryPath);
+  writeSummary(overlapSummary, overlapSummaryPath);
   appendToGithubStepSummary(summary);
 
-  process.stdout.write(`Generated report:\n- ${jsonPath}\n- ${htmlPath}\n- ${summaryPath}\n`);
+  process.stdout.write(`Generated report:\n- ${jsonPath}\n- ${htmlPath}\n- ${summaryPath}\n- ${overlapSummaryPath}\n`);
 }
 
 main().catch((error) => {
