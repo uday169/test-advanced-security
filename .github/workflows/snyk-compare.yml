@@ -1,0 +1,437 @@
+name: "Security Comparison — Snyk CSV vs GHAS"
+
+on:
+  push:
+    branches: [main, develop, 'security/**']
+    paths:
+      - 'reports/snyk/**/*.csv'
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'reports/snyk/**/*.csv'
+  workflow_dispatch:
+    inputs:
+      snyk_csv_path:
+        description: 'Path to Snyk CSV report (relative to repo root)'
+        required: true
+        default: 'reports/snyk/snyk-report.csv'
+        type: string
+      report_label:
+        description: 'Label for this comparison run (e.g. sprint-42, post-release)'
+        required: false
+        default: ''
+        type: string
+      fail_on_snyk_wins:
+        description: 'Fail workflow if Snyk detects more issues than GHAS'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  NODE_VERSION: '18'
+  COMPARE_DIR: 'scripts/security-compare'
+  OUTPUT_DIR: 'reports/output'
+  REPORTS_BUCKET: 'reports/snyk'
+
+permissions:
+  contents: read
+  security-events: read
+  pull-requests: write
+  issues: write
+  actions: read
+
+jobs:
+  resolve-csv:
+    name: "Resolve Snyk CSV path"
+    runs-on: ubuntu-latest
+    outputs:
+      csv_path: ${{ steps.resolve.outputs.csv_path }}
+      report_label: ${{ steps.resolve.outputs.report_label }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Resolve CSV path
+        id: resolve
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            CSV_PATH="${{ inputs.snyk_csv_path }}"
+            LABEL="${{ inputs.report_label }}"
+          else
+            CSV_PATH=$(find "${{ env.REPORTS_BUCKET }}" -name '*.csv' -type f | xargs ls -t 2>/dev/null | head -1)
+            LABEL=""
+          fi
+
+          if [ -z "$CSV_PATH" ] || [ ! -f "$CSV_PATH" ]; then
+            echo "❌ No Snyk CSV found at: $CSV_PATH"
+            echo "Upload a Snyk CSV to reports/snyk/ and commit it,"
+            echo "or provide the path via workflow_dispatch input."
+            exit 1
+          fi
+
+          echo "✅ Using CSV: $CSV_PATH"
+          echo "csv_path=$CSV_PATH" >> "$GITHUB_OUTPUT"
+          echo "report_label=$LABEL" >> "$GITHUB_OUTPUT"
+
+      - name: Validate CSV is non-empty
+        shell: bash
+        run: |
+          CSV="${{ steps.resolve.outputs.csv_path }}"
+          LINES=$(wc -l < "$CSV" | tr -d ' ')
+          if [ "$LINES" -lt 2 ]; then
+            echo "❌ CSV appears empty (only $LINES lines). Exiting."
+            exit 1
+          fi
+          echo "CSV has $LINES lines (including header)"
+
+      - name: Preview CSV headers
+        shell: bash
+        run: |
+          CSV="${{ steps.resolve.outputs.csv_path }}"
+          ROWS=$(( $(wc -l < "$CSV") - 1 ))
+          echo "## CSV Headers" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          head -1 "$CSV" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "Total rows: $ROWS" >> "$GITHUB_STEP_SUMMARY"
+
+  compare:
+    name: "Run Security Comparator"
+    runs-on: ubuntu-latest
+    needs: resolve-csv
+    outputs:
+      snyk_detection_rate: ${{ steps.parse-results.outputs.snyk_rate }}
+      ghas_detection_rate: ${{ steps.parse-results.outputs.ghas_rate }}
+      overall_winner: ${{ steps.parse-results.outputs.winner }}
+      total_findings: ${{ steps.parse-results.outputs.total }}
+      snyk_only: ${{ steps.parse-results.outputs.snyk_only }}
+      ghas_only: ${{ steps.parse-results.outputs.ghas_only }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install comparator dependencies
+        working-directory: ${{ env.COMPARE_DIR }}
+        run: npm install --prefer-offline
+
+      - name: Prepare output directory
+        run: mkdir -p "${{ env.OUTPUT_DIR }}"
+
+      - name: Run security comparator
+        id: run-compare
+        env:
+          CSV_PATH: ${{ needs.resolve-csv.outputs.csv_path }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OUTPUT_DIR: ${{ env.OUTPUT_DIR }}
+        shell: bash
+        run: |
+          cd "${{ env.COMPARE_DIR }}"
+          node index.js \
+            --snyk-csv "${{ github.workspace }}/${CSV_PATH}" \
+            --out-dir "${{ github.workspace }}/${OUTPUT_DIR}" \
+            --owner "${{ github.repository_owner }}" \
+            --repo "${{ github.event.repository.name }}"
+        continue-on-error: true
+
+      - name: Normalize comparator outputs
+        shell: bash
+        run: |
+          node - <<'EOF'
+          const fs = require('fs');
+          const path = require('path');
+
+          const outDir = path.resolve(process.env.OUTPUT_DIR);
+          const rawJsonPath = path.join(outDir, 'security-compare.json');
+          const rawHtmlPath = path.join(outDir, 'security-compare.html');
+          const finalJsonPath = path.join(outDir, 'security-comparison.json');
+          const finalHtmlPath = path.join(outDir, 'security-comparison.html');
+
+          if (!fs.existsSync(rawJsonPath) || !fs.existsSync(rawHtmlPath)) {
+            process.exit(0);
+          }
+
+          const raw = JSON.parse(fs.readFileSync(rawJsonPath, 'utf8'));
+          const allGroups = [...(raw.sastGroups || []), ...(raw.scaGroups || [])];
+          const summary = {
+            totalFindings: allGroups.length,
+            both: allGroups.filter((g) => Array.isArray(g.tools) && g.tools.length > 1).length,
+            snykOnly: allGroups.filter((g) => g.overlapType === 'snyk_only').length,
+            ghasOnly: allGroups.filter((g) => ['codeql_only', 'dependabot_only'].includes(g.overlapType)).length,
+          };
+
+          const normalized = {
+            generatedAt: raw.generatedAt,
+            repository: raw.repository,
+            summary,
+            scores: raw.scores,
+            sast: raw.sastGroups || [],
+            sca: raw.scaGroups || [],
+            counts: raw.counts || {},
+          };
+
+          fs.writeFileSync(finalJsonPath, JSON.stringify(normalized, null, 2));
+
+          const html = fs.readFileSync(rawHtmlPath, 'utf8');
+          const meta = `\n<!-- Run metadata -->\n<!-- Workflow run: ${process.env.GITHUB_RUN_ID} -->\n<!-- Triggered by: ${process.env.GITHUB_EVENT_NAME} -->\n<!-- CSV: ${process.env.CSV_PATH} -->\n<!-- Label: ${process.env.REPORT_LABEL} -->\n`;
+          fs.writeFileSync(finalHtmlPath, html.replace('</body>', `${meta}</body>`));
+          EOF
+        env:
+          OUTPUT_DIR: ${{ env.OUTPUT_DIR }}
+          CSV_PATH: ${{ needs.resolve-csv.outputs.csv_path }}
+          REPORT_LABEL: ${{ needs.resolve-csv.outputs.report_label }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+
+      - name: Parse comparison results
+        id: parse-results
+        shell: bash
+        run: |
+          JSON="${{ env.OUTPUT_DIR }}/security-comparison.json"
+          if [ ! -f "$JSON" ]; then
+            echo "⚠️ No JSON output found — comparator may have failed"
+            echo "snyk_rate=0" >> "$GITHUB_OUTPUT"
+            echo "ghas_rate=0" >> "$GITHUB_OUTPUT"
+            echo "winner=unknown" >> "$GITHUB_OUTPUT"
+            echo "total=0" >> "$GITHUB_OUTPUT"
+            echo "snyk_only=0" >> "$GITHUB_OUTPUT"
+            echo "ghas_only=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          node - <<'EOF'
+          const fs = require('fs');
+          const report = JSON.parse(fs.readFileSync(process.env.JSON_PATH, 'utf8'));
+          const scores = report.scores || {};
+          const overall = scores.overall || {};
+          const snykRate = Math.round(((overall.snyk || {}).detectionRate || 0) * 100);
+          const ghasRate = Math.round(((overall.ghas || {}).detectionRate || 0) * 100);
+          const winner = snykRate >= ghasRate ? 'Snyk' : 'GHAS';
+          const summary = report.summary || {};
+          const output = process.env.GITHUB_OUTPUT;
+
+          fs.appendFileSync(output, `snyk_rate=${snykRate}\n`);
+          fs.appendFileSync(output, `ghas_rate=${ghasRate}\n`);
+          fs.appendFileSync(output, `winner=${winner}\n`);
+          fs.appendFileSync(output, `total=${summary.totalFindings || 0}\n`);
+          fs.appendFileSync(output, `snyk_only=${summary.snykOnly || 0}\n`);
+          fs.appendFileSync(output, `ghas_only=${summary.ghasOnly || 0}\n`);
+          EOF
+        env:
+          JSON_PATH: ${{ env.OUTPUT_DIR }}/security-comparison.json
+
+      - name: Add comparison table to job summary
+        shell: bash
+        run: |
+          SNYK="${{ steps.parse-results.outputs.snyk_rate }}"
+          GHAS="${{ steps.parse-results.outputs.ghas_rate }}"
+          TOTAL="${{ steps.parse-results.outputs.total }}"
+          SNYK_ONLY="${{ steps.parse-results.outputs.snyk_only }}"
+          GHAS_ONLY="${{ steps.parse-results.outputs.ghas_only }}"
+          BOTH=$((TOTAL - SNYK_ONLY - GHAS_ONLY))
+
+          {
+            echo "## Security Comparison Results"
+            echo
+            echo "| Metric | Snyk | GHAS |"
+            echo "|---|---:|---:|"
+            echo "| Overall detection rate | ${SNYK}% | ${GHAS}% |"
+            echo "| Unique-only findings | ${SNYK_ONLY} | ${GHAS_ONLY} |"
+            echo "| Detected by both | ${BOTH} | ${BOTH} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload HTML report artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: "security-comparison-html-${{ github.run_id }}"
+          path: ${{ env.OUTPUT_DIR }}/security-comparison.html
+          retention-days: 90
+
+      - name: Upload JSON report artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: "security-comparison-json-${{ github.run_id }}"
+          path: ${{ env.OUTPUT_DIR }}/security-comparison.json
+          retention-days: 90
+
+      - name: Archive Snyk CSV
+        uses: actions/upload-artifact@v4
+        with:
+          name: "snyk-csv-input-${{ github.run_id }}"
+          path: ${{ needs.resolve-csv.outputs.csv_path }}
+          retention-days: 90
+
+  pr-comment:
+    name: "Post PR comparison comment"
+    runs-on: ubuntu-latest
+    needs: [resolve-csv, compare]
+    if: github.event_name == 'pull_request'
+
+    steps:
+      - name: Post scored summary as PR comment
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const snykRate = '${{ needs.compare.outputs.snyk_detection_rate }}';
+            const ghasRate = '${{ needs.compare.outputs.ghas_detection_rate }}';
+            const winner = '${{ needs.compare.outputs.overall_winner }}';
+            const total = '${{ needs.compare.outputs.total_findings }}';
+            const snykOnly = '${{ needs.compare.outputs.snyk_only }}';
+            const ghasOnly = '${{ needs.compare.outputs.ghas_only }}';
+            const both = total - parseInt(snykOnly, 10) - parseInt(ghasOnly, 10);
+            const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const winnerBadge = winner === 'Snyk'
+              ? '🟣 **Snyk** wins this round'
+              : '🔵 **GHAS** wins this round';
+
+            const body = [
+              '## 🔒 Security Tool Comparison — Snyk vs GHAS',
+              '',
+              `> **CSV:** \`${{ needs.resolve-csv.outputs.csv_path }}\`  `,
+              `> **Run:** [#${{ github.run_id }}](${runUrl})`,
+              '',
+              '### Overall Verdict',
+              `${winnerBadge}`,
+              '',
+              '| Metric | 🟣 Snyk | 🔵 GHAS |',
+              '|--------|---------|---------|',
+              `| Overall detection rate | **${snykRate}%** | **${ghasRate}%** |`,
+              `| Unique-only findings | ${snykOnly} | ${ghasOnly} |`,
+              `| Detected by both | ${both} | ${both} |`,
+              '',
+              '### Coverage Breakdown',
+              '| | |',
+              '|---|---|',
+              `| ✅ Both tools detected | **${both}** findings |`,
+              `| 🟣 Snyk only (GHAS missed) | **${snykOnly}** findings |`,
+              `| 🔵 GHAS only (Snyk missed) | **${ghasOnly}** findings |`,
+              `| 📊 Total unique findings | **${total}** |`,
+              '',
+              '### Reports',
+              `- 📄 [HTML Report (interactive)](${runUrl}) — download from Artifacts`,
+              '- 📋 JSON report available in workflow artifacts',
+              '',
+              '> Intentional vulnerabilities mapped in [SECURITY-EVAL.md](./SECURITY-EVAL.md)',
+            ].join('\n');
+
+            const comments = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+            });
+
+            for (const c of comments.data) {
+              if (c.body.includes('Security Tool Comparison — Snyk vs GHAS')) {
+                await github.rest.issues.deleteComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: c.id,
+                });
+              }
+            }
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body,
+            });
+
+  verdict-issue:
+    name: "Open verdict issue on main"
+    runs-on: ubuntu-latest
+    needs: [resolve-csv, compare]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      - name: Open GitHub issue with verdict
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const snykRate = '${{ needs.compare.outputs.snyk_detection_rate }}';
+            const ghasRate = '${{ needs.compare.outputs.ghas_detection_rate }}';
+            const winner = '${{ needs.compare.outputs.overall_winner }}';
+            const total = '${{ needs.compare.outputs.total_findings }}';
+            const snykOnly = '${{ needs.compare.outputs.snyk_only }}';
+            const ghasOnly = '${{ needs.compare.outputs.ghas_only }}';
+            const date = new Date().toISOString().split('T')[0];
+            const runUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+
+            for (const label of ['security', 'evaluation', 'snyk-vs-ghas']) {
+              try {
+                await github.rest.issues.createLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  name: label,
+                });
+              } catch (error) {
+                if (error.status !== 422) throw error;
+              }
+            }
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `📊 Security Comparison Verdict — ${winner} wins — ${date}`,
+              body: [
+                '## Security Tool Comparison Results',
+                '',
+                `**Date:** ${date}  `,
+                `**CSV Input:** \`${{ needs.resolve-csv.outputs.csv_path }}\`  `,
+                `**Workflow Run:** [#${{ github.run_id }}](${runUrl})`,
+                '',
+                '## Verdict',
+                `### 🏆 ${winner} wins this comparison`,
+                '',
+                '| Metric | 🟣 Snyk | 🔵 GHAS |',
+                '|--------|---------|---------|',
+                `| Detection rate | ${snykRate}% | ${ghasRate}% |`,
+                `| Unique findings | ${snykOnly} | ${ghasOnly} |`,
+                `| Total findings | ${total} | ${total} |`,
+                '',
+                '## Next Steps',
+                '1. Download the HTML report from workflow artifacts',
+                '2. Review findings unique to each tool (coverage gaps)',
+                '3. Update `SECURITY-EVAL.md` scorecard with these results',
+                '4. For findings only in Snyk — evaluate enabling equivalent GHAS rules',
+                '5. For findings only in GHAS — evaluate Snyk rule coverage gaps',
+                '',
+                '## Artifacts',
+                `- [HTML Report](${runUrl}) — interactive comparison table`,
+                `- [JSON Report](${runUrl}) — machine-readable for further analysis`,
+                '',
+                '> See [SECURITY-EVAL.md](./SECURITY-EVAL.md) for ground truth registry',
+              ].join('\n'),
+              labels: ['security', 'evaluation', 'snyk-vs-ghas'],
+            });
+
+  enforce-gate:
+    name: "Enforce GHAS parity gate"
+    runs-on: ubuntu-latest
+    needs: compare
+    if: github.event_name == 'workflow_dispatch' && inputs.fail_on_snyk_wins
+
+    steps:
+      - name: Fail if Snyk detection rate exceeds GHAS
+        shell: bash
+        run: |
+          SNYK="${{ needs.compare.outputs.snyk_detection_rate }}"
+          GHAS="${{ needs.compare.outputs.ghas_detection_rate }}"
+          echo "Snyk detection: ${SNYK}%"
+          echo "GHAS detection: ${GHAS}%"
+          if [ "$SNYK" -gt "$GHAS" ]; then
+            echo "❌ GHAS parity gate FAILED: Snyk (${SNYK}%) > GHAS (${GHAS}%)"
+            echo "Review Security → Code scanning and Dependabot alerts."
+            echo "Consider enabling additional CodeQL query suites or Dependabot rules."
+            exit 1
+          fi
+          echo "✅ GHAS parity gate PASSED: GHAS (${GHAS}%) ≥ Snyk (${SNYK}%)"
