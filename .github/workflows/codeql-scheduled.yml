@@ -35,17 +35,17 @@ jobs:
       - run: npm install
 
       - name: Initialize CodeQL (deep scan)
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@v4
         with:
           languages: javascript
           config-file: .github/codeql/codeql-config.yml
           queries: security-extended,security-and-quality
 
-      - uses: github/codeql-action/autobuild@v3
+      - uses: github/codeql-action/autobuild@v4
 
       - name: Perform CodeQL Analysis
         id: analysis
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@v4
         with:
           category: "/language:javascript/scheduled/${{ matrix.package }}"
           output: sarif-results
