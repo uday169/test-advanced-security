@@ -20,10 +20,28 @@ router.get('/cmd', (req, res) => {
 });
 
 router.get('/file', (req, res) => {
-  const filePath = path.join(__dirname, req.query.name);
-  fs.readFile(filePath, 'utf8', (err, data) => {
-    if (err) return res.status(404).json({ error: err.message });
-    res.send(data);
+  const baseDir = __dirname;
+  const requestedPath = path.resolve(baseDir, String(req.query.name || ''));
+
+  fs.realpath(baseDir, (baseErr, realBaseDir) => {
+    if (baseErr) return res.status(500).json({ error: baseErr.message });
+
+    fs.realpath(requestedPath, (pathErr, realRequestedPath) => {
+      if (pathErr) return res.status(404).json({ error: pathErr.message });
+
+      const isInsideBase =
+        realRequestedPath === realBaseDir ||
+        realRequestedPath.startsWith(realBaseDir + path.sep);
+
+      if (!isInsideBase) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+
+      fs.readFile(realRequestedPath, 'utf8', (err, data) => {
+        if (err) return res.status(404).json({ error: err.message });
+        res.send(data);
+      });
+    });
   });
 });
 
