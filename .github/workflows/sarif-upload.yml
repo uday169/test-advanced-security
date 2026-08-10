@@ -32,7 +32,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Run Snyk Code scan (generates SARIF)
         if: inputs.tool == 'snyk' && env.SNYK_TOKEN != ''
